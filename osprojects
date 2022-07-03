@@ -1,0 +1,366 @@
+
+//********************************************************************
+//owned by praveen nerji. 
+// Praveen Nerji
+// Operating Systems
+//  Project #3: Process Synchronization Using Pthreads: The Producer / Consumer Problem With Prime Number Detector
+
+//
+//********************************************************************
+
+
+#include<pthread.h>
+#include<stdio.h>
+#include<stdlib.h>
+#include "buffer.h"
+#include<unistd.h>
+#include<iostream>
+#include<stdlib.h>
+#include<semaphore.h>
+#include<map>
+#include<vector>
+#include<string.h>
+
+using namespace std;
+
+ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+ sem_t full_seg_sem;
+
+ sem_t empty_sig_sem;
+
+ int in =0;
+ int count=0;
+
+ int out =0;
+
+ int total_producer[100];
+ int total_consumer[100];
+
+
+ buffer_item buffer[BUFFER_SIZE];
+#define BUFFER_SIZE 5
+
+
+ int buffer_full_count =0;
+ int buffer_empty_count =0;
+ void *producer(void* arg);
+ void *consumer(void* arg);
+ bool prime_check(int num);
+ void buffer_print();
+ void print_stats();
+
+ int main_sleep =10;
+
+ char output[20] ;
+
+ int numb_producer =3;
+ int num_consumer =2;
+  int prod_cons_sleeptime =1; 
+bool flag= true;
+std::map<int,int>prodconsumer_rec;
+std::vector<pthread_t> thread_prod;
+std::vector<pthread_t> tid_consumer;
+int main(int argc, char *argv[])
+{       
+        
+ main_sleep =atoi(argv[1]);
+ prod_cons_sleeptime =atoi(argv[2]);
+ numb_producer =atoi(argv[3]);
+ num_consumer =atoi(argv[4]);
+ strcpy(output,argv[5]);
+	//initialize all buffer indices to -1
+	for(int i=0; i <BUFFER_SIZE; i++) buffer[i]=-1;
+
+		pthread_attr_t attributes;
+        printf("starting threads...\n");
+        printf("(buffers occupied: %d)\n",count);
+        printf("buffers: ");
+	for(int i=0;i<BUFFER_SIZE;i++)
+	{
+		printf("%d\t", buffer[i]);
+	}
+        printf("\n");
+        printf("          wr\t--\t--\t--\n");
+        printf("\n");
+	pthread_attr_init(&attributes);
+	pthread_mutex_init( &mutex, NULL );
+	sem_init(&full_seg_sem ,0, 0);
+	sem_init(&empty_sig_sem,0, BUFFER_SIZE);
+	//create producer threads
+	pthread_t pro_threads[numb_producer];
+	for(int i=0;i<numb_producer;i++)
+	{
+		pthread_create(&pro_threads[i],&attributes,producer,NULL);
+		prodconsumer_rec[pro_threads[i]]=0;
+		thread_prod.push_back(pro_threads[i]);
+	}
+	//create consumer threads
+	pthread_t con_threads[num_consumer];
+	for(int i=0;i<num_consumer;i++)
+	{
+		pthread_create(&con_threads[i],&attributes,consumer,NULL);
+		prodconsumer_rec[con_threads[i]]=0;
+		tid_consumer.push_back(con_threads[i]);
+	}
+	//sleep in main function for a finite amount of time
+	sleep(main_sleep);
+	flag=false;
+	
+	for(int i=0;i<numb_producer;i++)sem_post(&empty_sig_sem);
+
+
+	for(int i=0;i<num_consumer;i++)sem_post(&full_seg_sem);
+		//display
+        if(strcmp(output,"yes")==0 or strcmp(output,"YES")==0 or strcmp(output , "Yes")==0)
+		print_stats();
+	exit;
+}
+
+
+//********************************************************************
+//
+// Producer Function
+//
+// Producer function used to produce the items in buffer 
+// when buffer is full producer wait for consumers to 
+// consume data
+// 
+//
+// Return Value
+// ------------
+// Void*                        NULL
+//
+// Value Parameters
+// ----------------
+// arg		void *		
+//
+// Reference Parameters
+// --------------------
+// 
+//
+//*******************************************************************
+void *producer(void* arg)
+{       
+		int tid = pthread_self();
+		while(flag)
+		{
+			sleep(prod_cons_sleeptime);
+			buffer_item rand_val=rand() % 100;
+			
+			sem_wait(&empty_sig_sem);
+			if(!flag)break;
+			pthread_mutex_lock(&mutex);
+			buffer[in]=rand_val;
+			in = (in+1)%BUFFER_SIZE;
+			count++;
+			printf("producer %d  writes %d \n",tid,rand_val);
+				buffer_print();
+				prodconsumer_rec[tid]++;
+				pthread_mutex_unlock(&mutex);
+				sem_post(&full_seg_sem);
+			if(count==BUFFER_SIZE)
+			{
+				buffer_full_count++;
+				printf(" All buffers full. producer %d waits.\n\n",tid);
+			};
+                        if(count==0)
+                                 buffer_empty_count++;
+			}
+			return NULL;
+}
+
+
+//********************************************************************
+//
+// Consumer Function
+//
+// Consumer function consumes the data present in buffer
+// when buffer is empty consumer wait for producer to 
+// produce data
+// 
+//
+// Return Value
+// ------------
+// Void*                        NULL
+//
+// Value Parameters
+// ----------------
+// arg		void *		
+//
+// Reference Parameters
+// --------------------
+// 
+//
+//*******************************************************************
+
+
+void *consumer(void* arg)
+{
+		int tid=pthread_self();
+		while(flag)
+		{
+			sleep(prod_cons_sleeptime);
+			
+                       
+			sem_wait(&full_seg_sem);
+			if(!flag)break;
+			pthread_mutex_lock( &mutex);
+			int next_consumed = buffer[out];
+			buffer[out]=-1;
+			out= (out+1)%BUFFER_SIZE;
+			count--;
+                        if(count==BUFFER_SIZE)
+			{
+				buffer_full_count++;
+				printf(" All buffers full. producer %d waits.\n\n",tid);
+			};
+                        if(count==0)
+                                 buffer_empty_count++;
+			if(prime_check(next_consumed))
+			{	printf("consumer %d reads %d  *prime* \n",tid,next_consumed);
+                                
+			}
+            else
+            printf("consumer %d reads %d \n", tid, next_consumed);
+            buffer_print();
+            prodconsumer_rec[tid]++;
+            pthread_mutex_unlock(&mutex);
+            sem_post(&empty_sig_sem);
+        }
+        return NULL;
+
+}
+
+
+
+//********************************************************************
+//
+// Prime_check function
+//
+// prime check function used to check if a number is prime or not
+// 
+//
+// Return Value
+// ------------
+// bool                        true/false if number is prime
+//
+// Value Parameters
+// ----------------
+// number		 int   number to check for prime	
+//
+// Reference Parameters
+// --------------------
+// 
+//
+//*******************************************************************
+bool prime_check(int number)
+{
+	bool check_flag=true;
+	for(int i=2; i<= number/2; i++){
+		if(number % i==0){
+			check_flag = false;
+			break;
+		}
+
+	}
+	return check_flag;
+}
+
+//********************************************************************
+//
+//buffer_print function
+//
+// This function prints the values present in the buffer
+// to console
+//
+// Return Value
+// ------------
+// void                          
+//
+// Value Parameters
+// ----------------
+// void 
+//
+// Reference Parameters
+// --------------------
+// 
+//
+//*******************************************************************
+
+void buffer_print()
+{      /* printing buffers content */
+	printf("buffers occupied: %d)\n",count);
+        printf("buffers: ");
+	for(int i=0;i<BUFFER_SIZE;i++)
+	{
+		printf("%d\t", buffer[i]);
+	}
+	printf("\n");
+
+	printf("\t");
+        /* printing buffers availables for read and write */
+	for(int i=0;i<BUFFER_SIZE;i++)
+	{
+		if(i==in)printf("w");
+		if(i==out)printf("R");
+		if(i!=in && i!=out)	printf("--\t");
+		else printf("\t");
+
+	}
+	printf("\n\n\n");
+}
+
+//********************************************************************
+//
+// Print_stats Function
+//
+// This function prints the simulation details if user requested
+//
+// Return Value
+// ------------
+// void                          
+//
+// Value Parameters
+// ----------------
+// void 	
+//
+// Reference Parameters
+// --------------------
+// 
+//
+//*******************************************************************
+void print_stats()
+{
+	printf("PRODUCER/ CONSUMER SIMULATION COMPLETE\n");
+	printf("=================\n");
+	printf("simulation time:\t\t\t%d\n",main_sleep);
+	printf("maximum thread sleep time:\t\t%d\n",prod_cons_sleeptime);
+	printf("number of producer threads:\t\t%d\n",numb_producer);
+        printf("number of consumer threads:\t\t%d\n",num_consumer);
+	printf("size of buffer:\t\t\t\t%d\n\n", BUFFER_SIZE);
+	int total_producer=0;
+       
+        
+	for(int i=0;i<thread_prod.size();i++)
+	{
+		total_producer+= prodconsumer_rec[thread_prod[i]];
+               
+	}
+	printf("\ntotal number of items produced:\t\t%d\n", total_producer);
+	for(int i=0;i<thread_prod.size();i++){
+		printf(" thread %d:\t\t%d\n", i, prodconsumer_rec[thread_prod[i]]);
+	}
+	int total_consumer =0;
+	for(int i=0;i<tid_consumer.size();i++)
+	{
+		total_consumer += prodconsumer_rec[tid_consumer[i]];
+	}
+	printf("\ntotal number of items consumed:\t\t%d\n", total_consumer);
+	for(int i=0;i<tid_consumer.size();i++){
+		printf(" thread %d:\t\t%d\n", i, prodconsumer_rec[tid_consumer[i]]);
+	}
+	printf("number of items remaining in buffer:\t%d\n", count);
+	printf("number of times  buffer was full:\t%d\n", buffer_full_count);
+	printf("number of times  buffer was empty:\t%d\n", buffer_empty_count);
+
+}
